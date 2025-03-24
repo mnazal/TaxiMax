@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Taxi Route Optimization</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <!-- Include Google Maps JavaScript API -->
+    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCeOW2S_TCq4yaIIDICdXeKP-rr3j6ElfY&callback=initMap" async defer></script>
+</head>
+<body>
+    <h1>Taxi Route Optimization</h1>
+    <div id="map" style="width: 100%; height: 500px;"></div>
+    <div>
+        <button id="optimize-button">Optimize Route</button>
+        <button id="reset-button">Reset</button>
+    </div>
+    <div id="result">
+        <h2>Optimal Route</h2>
+        <p>Total Distance: <span id="total-distance">0 meters</span></p>
+        <p>Time Estimate: <span id="time-estimate">0 minutes</span></p>
+        <pre id="route-details"></pre>
+    </div>
+
+    <script>
+        let map;
+        let markers = [];
+        let directionsService;
+        let directionsRenderer;
+
+        // Initialize the map
+        function initMap() {
+            map = new google.maps.Map(document.getElementById('map'), {
+                center: { lat: 8.5241, lng: 76.9366 },  
+                zoom: 12
+            });
+
+            directionsService = new google.maps.DirectionsService();
+            directionsRenderer = new google.maps.DirectionsRenderer();
+            directionsRenderer.setMap(map);
+
+            // Add click event to the map
+            map.addListener('click', function(e) {
+                const location = { lat: e.latLng.lat(), lng: e.latLng.lng() };
+                addMarker(location);
+
+                // Send the location to the server
+                fetch('/add_location', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(location),
+                });
+            });
+        }
+
+        // Add a marker to the map
+        function addMarker(location) {
+            const marker = new google.maps.Marker({
+                position: location,
+                map: map,
+                label: (markers.length + 1).toString(),  // Label markers with numbers
+            });
+            markers.push(marker);
+        }
+
+        // Optimize route button
+        document.getElementById('optimize-button').addEventListener('click', function() {
+            fetch('/optimize_route', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    const resultDiv = document.getElementById('result');
+                    const totalDistance = document.getElementById('total-distance');
+                    const timeEstimate = document.getElementById('time-estimate');
+                    const routeDetails = document.getElementById('route-details');
+
+                    // Update the results
+                    totalDistance.textContent = `${data.total_distance} meters`;
+                    timeEstimate.textContent = `${(data.time_estimate / 60).toFixed(2)} minutes`;  // Convert seconds to minutes
+                    routeDetails.textContent = JSON.stringify(data.optimal_route, null, 2);
+
+                    // Draw the optimal route on the map
+                    drawRoute(data.optimal_route);
+                } else {
+                    alert(data.message);
+                }
+            });
+        });
+
+        // Reset button
+        document.getElementById('reset-button').addEventListener('click', function() {
+            // Clear markers from the map
+            markers.forEach(marker => marker.setMap(null));
+            markers = [];
+
+            // Clear the directions route
+            directionsRenderer.setMap(null);
+            directionsRenderer = new google.maps.DirectionsRenderer();
+            directionsRenderer.setMap(map);
+
+            // Clear the result div
+            document.getElementById('result').innerHTML = `
+                <h2>Optimal Route</h2>
+                <p>Total Distance: <span id="total-distance">0 meters</span></p>
+                <p>Time Estimate: <span id="time-estimate">0 minutes</span></p>
+                <pre id="route-details"></pre>
+            `;
+
+            // Send a request to reset locations on the server
+            fetch('/reset_locations', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    alert("Locations reset successfully.");
+                } else {
+                    alert("Failed to reset locations.");
+                }
+            });
+        });
+
+        // Draw the route on the map
+        function drawRoute(route) {
+            const waypoints = route.slice(1, -1).map(location => ({
+                location: new google.maps.LatLng(location[0], location[1]),
+                stopover: true,
+            }));
+
+            const request = {
+                origin: new google.maps.LatLng(route[0][0], route[0][1]),  // Start point
+                destination: new google.maps.LatLng(route[route.length - 1][0], route[route.length - 1][1]),  // End point
+                waypoints: waypoints,  // Intermediate points
+                travelMode: google.maps.TravelMode.DRIVING,
+            };
+
+            directionsService.route(request, function(result, status) {
+                if (status === google.maps.DirectionsStatus.OK) {
+                    directionsRenderer.setDirections(result);
+                } else {
+                    alert('Failed to draw route: ' + status);
+                }
+            });
+        }
+    </script>
+</body>
+</html>
